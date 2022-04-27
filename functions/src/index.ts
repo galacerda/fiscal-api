@@ -5,6 +5,8 @@ const app = admin.initializeApp();
 const db = app.firestore();
 const collVehicles = db.collection("veiculos");
 const collDevices = db.collection("aparelhos");
+const collFiscais = db.collection("fiscais");
+const collIrregularidades = db.collection("irregularidades");
 
 interface CallableResponse {
   status: string;
@@ -112,6 +114,61 @@ export const consultPlate = functions
       return result;
     });
 
-// export const registerIrregularity = functions
-//     .region("southamerica-east1")
-//     .https.onCall(async (data, context) => {});
+export const registerIrregularity = functions
+    .region("southamerica-east1")
+    .https.onCall(async (data, context) => {
+      let result: CallableResponse;
+      functions.logger.error(context.auth?.uid);
+
+      const {plate, imageOne, imageTwo, imageThree, imageFour} = data;
+
+      if (context.auth?.uid) {
+        const {docs, empty} = await collDevices
+            .where("uid", "==", context.auth?.uid)
+            .get();
+        if (!empty) {
+          const deviceRef = db.collection("aparelhos").doc(docs[0].id);
+          functions.logger.error(deviceRef);
+          const snapshot = await collFiscais
+              .where("aparelho", "==", deviceRef)
+              .get();
+          if (!snapshot.empty) {
+            const irregularityDto = {
+              placa: plate,
+              fotos: [imageOne, imageTwo, imageThree, imageFour],
+              fiscal: snapshot.docs[0].ref,
+            };
+            await collIrregularidades.add(irregularityDto);
+            result = {
+              status: "SUCCESS",
+              message: "Irregularidade foi criada",
+              payload: JSON.parse(JSON.stringify(irregularityDto)),
+            };
+          } else {
+            functions.logger.error(
+                "Erro ao criar irregularidade - Fiscal não encontrado"
+            );
+            result = {
+              status: "ERROR",
+              message: "Fiscal não encontrado",
+              payload: JSON.parse(JSON.stringify({placa: plate})),
+            };
+          }
+        }
+        functions.logger.error("Erro ao consultar-Não foi possivel continuar");
+        result = {
+          status: "ERROR",
+          message: "Não foi possivel continuar",
+          payload: JSON.parse(JSON.stringify({placa: plate})),
+        };
+      } else {
+        functions.logger.error("Erro ao consultar - Usuario não autenticado");
+        result = {
+          status: "ERROR",
+          message: "Usuario não autenticado",
+          payload: JSON.parse(JSON.stringify({placa: plate})),
+        };
+      }
+
+      return result;
+    });
